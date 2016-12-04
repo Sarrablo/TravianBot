@@ -1,0 +1,6 @@
+{
+	"login": {
+		"user": "plantas1",
+		"pass": "fox.map-19"
+	}
+}
