@@ -2,5 +2,11 @@
 	"login": {
 		"user": "plantas1",
 		"pass": "fox.map-19"
-	}
+	},
+	"priorityResources": {
+		"L": 0,
+		"M": 0,
+		"B": 0,
+		"G": 1	
+		}
 }
