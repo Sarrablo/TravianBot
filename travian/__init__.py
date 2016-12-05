@@ -48,22 +48,43 @@ class ResourceList(list):
     """
 
     def get_lowest_by_type(self, type_):
+        """ Get the lowest leveled resource of a specific type """
         type_ = INV_TYPES[type_]
         results = [elem for elem in self if elem.type_ == type_]
         return sorted(results, key=lambda res: res.level)[0]
 
     def get_highest_by_type(self, type_):
+        """ Get the highest leveled resource of a specific type """
         type_ = INV_TYPES[type_]
         results = [elem for elem in self if elem.type_ == type_]
         return sorted(results, key=lambda res: res.level, reverse=True)[0]
 
+    def _by_type(self):
+        for name, type_ in INV_TYPES.items():
+            yield name, [elem for elem in self if elem.type_ == type_]
 
-class TravianBot:
+    @property
+    def by_type(self):
+        """ Return resources ordered by type """
+        return dict(self._by_type())
+
+    def _level_by_type(self):
+        for name, elems in self._by_type():
+            yield name, sum([int(elem.level) for elem in elems])
+
+    @property
+    def level_by_type(self):
+        """ Return levels ordered by type """
+        return dict(self._level_by_type())
+
+
+class Travian:
     """
-    Travian bot class
+    Travian Interface
 
     """
     def __init__(self, user, password):
+        self.last_build_known_ends = None
         self.bro = mechanize.Browser()
         cookiejar = cookielib.LWPCookieJar()
         self.bro.set_cookiejar(cookiejar)
@@ -83,7 +104,6 @@ class TravianBot:
         # Careful, if we build using another instance
         # of the bot, this might not be true
         return self._can_build
-
 
     def login(self, user, password):
         """ Login into travian """
@@ -137,4 +157,24 @@ class TravianBot:
         result = self.get_soup(BASE_URL.format(link))
         durationbox = result.findAll(attrs={"class": 'buildDuration'})[0]
         attrs = dict(durationbox.findAll(attrs={"class": "timer"})[0].attrs)
-        return datetime.now() + timedelta(seconds=int(attrs['value']))
+        time_ = datetime.now() + timedelta(seconds=int(attrs['value']))
+        self.last_build_known_ends = time_
+        return time_
+
+
+class TravianBot:
+    """
+    Travian bot
+    """
+    def __init__(self, config):
+        self.config = config
+        self.travian = Travian(config.get("login", "user"),
+                               config.get("login", "user"))
+
+    def assess_resources(self):
+        """
+        Assess resources
+
+        """
+        groups = self.travian.resources.by_type
+        print(groups)
