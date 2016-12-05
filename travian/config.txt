@@ -1,7 +1,7 @@
 {
 	"login": {
 		"user": "plantas1",
-		"pass": "fox.map-19"
+		"pass": "*****"
 	},
 	"priorityResources": {
 		"L": 0,
