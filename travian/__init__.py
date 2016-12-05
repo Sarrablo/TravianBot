@@ -4,21 +4,26 @@ A simple travian bot
 """
 import re
 from collections import namedtuple
+from datetime import datetime, timedelta
 
 import cookielib
 import mechanize
 from BeautifulSoup import BeautifulSoup
 
-MAX_MAP_RESOURCES = 19
-
 BASE_URL = 'http://ts1.travian.net/{}'
 RESOURCES_URL = BASE_URL.format('build.php?id={}')
 LOGIN_URL = BASE_URL.format('login.php')
 
-Resource = namedtuple("Resource", "type_, level, link")
+MAX_MAP_RESOURCES = 19
+RES_TYPES = {'L': 'Lumberer', 'M': 'Mine', 'B': 'Barrier', 'G': 'Farm'}
+ResourceType = namedtuple("Resource", ",".join(RES_TYPES.values()))
 
 
-ResourceType = namedtuple("Resource", "lumberer, mine, barrier, farm")
+class Resource(namedtuple("Resource", "id, type_, level, link")):
+    """ Represents a resource """
+    def __repr__(self):
+        return "<Resource type {} level {}>".format(
+            RES_TYPES[self.type_], self.level)
 
 
 class ResourcePriority(ResourceType):
@@ -59,7 +64,7 @@ class TravianBot:
 
     def map_resources(self):
         """
-        Resources generator
+        Generator yielding current resources available
 
         """
 
@@ -72,7 +77,8 @@ class TravianBot:
             soup = self.get_soup(resource_url)
             tipe = filter_rendered(soup, {"class": "titleInHeader"})
             level = filter_rendered(BeautifulSoup(tipe), {"class": "level"})
-            yield Resource(type_=tipe[0], level=level[-1], link=resource_url)
+            yield Resource(id=i, type_=tipe[0], level=level[-1],
+                           link=resource_url)
 
     def get_soup(self, url):
         """ Open a URL and returns its parsed BS content """
@@ -80,17 +86,14 @@ class TravianBot:
         soup = BeautifulSoup(self.bro.response().read())
         return soup
 
-    def build_resource(self, resource_id):
+    def build_resource(self, resource):
         """
         Build resource, accepts a resource id
 
-        .. warning:: resource_id is incidentally auto_incremental.
-                     and we're using that in our advantage here,
-                     if that changes, self.resources should be
-                     transformed to a dict and keep there resource_ids.
+        .. param:: resource: Resource object to build.
 
         """
-        soup = self.get_soup(self.resources[resource_id].link)
+        soup = self.get_soup(self.resources[resource.id].link)
 
         try:
             attrs = soup.findAll(attrs={"class": "green build"})[0].attrs
@@ -98,4 +101,7 @@ class TravianBot:
         except:
             raise ValueError("Already building or unable to build")
 
-        return self.get_soup(BASE_URL.format(link))
+        result = self.get_soup(BASE_URL.format(link))
+        durationbox = result.findAll(attrs={"class": 'buildDuration'})[0]
+        attrs = dict(durationbox.findAll(attrs={"class": "timer"})[0].attrs)
+        return datetime.now() + timedelta(seconds=int(attrs['value']))
