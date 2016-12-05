@@ -16,6 +16,8 @@ LOGIN_URL = BASE_URL.format('login.php')
 
 MAX_MAP_RESOURCES = 19
 RES_TYPES = {'L': 'Lumberer', 'M': 'Mine', 'B': 'Barrier', 'G': 'Farm'}
+INV_TYPES = {v: k for k, v in RES_TYPES.items()}
+
 ResourceType = namedtuple("Resource", ",".join(RES_TYPES.values()))
 
 
@@ -39,6 +41,23 @@ class ResourcePriority(ResourceType):
                                 key=lambda x: x[1])).values())
 
 
+class ResourceList(list):
+    """
+    Represents a list of resources.
+
+    """
+
+    def get_lowest_by_type(self, type_):
+        type_ = INV_TYPES[type_]
+        results = [elem for elem in self if elem.type_ == type_]
+        return sorted(results, key=lambda res: res.level)[0]
+
+    def get_highest_by_type(self, type_):
+        type_ = INV_TYPES[type_]
+        results = [elem for elem in self if elem.type_ == type_]
+        return sorted(results, key=lambda res: res.level, reverse=True)[0]
+
+
 class TravianBot:
     """
     Travian bot class
@@ -52,7 +71,7 @@ class TravianBot:
         self._can_build = True
 
         self.login(user, password)
-        self.resources = list(self.map_resources())
+        self.resources = ResourceList(self.map_resources())
 
     @property
     def can_build(self):
@@ -105,7 +124,7 @@ class TravianBot:
         .. param:: resource: Resource object to build.
 
         """
-        soup = self.get_soup(self.resources[resource.id].link)
+        soup = self.get_soup(resource.link)
 
         try:
             attrs = soup.findAll(attrs={"class": "green build"})[0].attrs
