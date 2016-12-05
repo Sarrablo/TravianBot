@@ -45,14 +45,26 @@ class TravianBot:
 
     """
     def __init__(self, user, password):
-        self.can_build = False
-
         self.bro = mechanize.Browser()
         cookiejar = cookielib.LWPCookieJar()
         self.bro.set_cookiejar(cookiejar)
 
+        self._can_build = True
+
         self.login(user, password)
         self.resources = list(self.map_resources())
+
+    @property
+    def can_build(self):
+        """ Check if we can build something. """
+        if not self._can_build:
+            # We didn't got an exception, we check if the
+            # last build has already finished...
+            return self.last_build_known_ends < datetime.now()
+        # Careful, if we build using another instance
+        # of the bot, this might not be true
+        return self._can_build
+
 
     def login(self, user, password):
         """ Login into travian """
@@ -98,7 +110,9 @@ class TravianBot:
         try:
             attrs = soup.findAll(attrs={"class": "green build"})[0].attrs
             link = re.match(".*'(.*)'.*", dict(attrs)['onclick']).group(1)
+            self._can_build = True
         except:
+            self._can_build = False
             raise ValueError("Already building or unable to build")
 
         result = self.get_soup(BASE_URL.format(link))
