@@ -10,14 +10,35 @@ class Resource:
         self.level = level
         self.link = link
 
-class TravianBot:
-   
+class Priority:
+    def __init__(self, l, m, b , g):
+        self.l = l
+        self.m = m
+        self.b = b
+        self.g = g
         
+    def getMostPrior(self):
+        foo = ["L","M","B","G"]
+        bar =  [self.l,self.m,self.b,self.g]
+        for i in range(4):
+            for x in range(3):
+                if(bar[x]<bar[x+1]):
+                    a=bar[x]
+                    bar[x]=bar[x+1]
+                    bar[x+1] = a
+                    z=foo[x]
+                    foo[x]=foo[x+1]
+                    foo[x+1]=z
+        return foo
+        
+        
+class TravianBot:           
     def getInfo(self):
         f = open("config.txt")
         data = json.load(f)
         self.user= str(data['login']['user'])
         self.password=str(data['login']['pass'])
+        
 
     def login(self):
         self.br.open('http://ts1.travian.net/login.php')
@@ -27,6 +48,7 @@ class TravianBot:
         self.br.submit()
 
     def mapResources(self):
+        self.resources=[]
         for i in range(1,19):
             
             self.br.open('http://ts1.travian.net/build.php?id='+str(i))
@@ -35,25 +57,27 @@ class TravianBot:
             lev = BeautifulSoup(tipe).findAll(attrs={"class" : "level"})[0].renderContents()
             self.resources.append(Resource(tipe[0],lev[-1],('http://ts1.travian.net/build.php?id='+str(i))))
 
-    def showMap(self):
-        line=''
-        for i in range(len(self.resources)):
-            
-            if(i%4==0):
-                line = line + "("+self.resources[i].typ + "," + self.resources[i].level + ")"
-                print line
-                line = ''
-            else:
-                line = line + "("+self.resources[i].typ + "," + self.resources[i].level + ")"
-
-        print line
+    def buildResource(self, idResource):
+        self.br.open(self.resources[idResource].link)
+        soup = BeautifulSoup(self.br.response().read())
+        link= None
+        try:
+            link = soup.findAll(attrs={"class" : "green build"})
+        except:
+            print "no se peude construir"
+        if(len(link) > 0):
+            foo= str(link).replace('&amp;','&')
+            bar= foo[(foo.find('href'))+8:foo.find(';')-1]
+            self.br.open('http://ts1.travian.net/'+bar)
+        else:
+            print "no se peude construir"
+        
             
 
     def __init__(self):
         self.br = mechanize.Browser()        
         cookiejar =cookielib.LWPCookieJar()
         self.br.set_cookiejar(cookiejar)
-        self.resources=[]
         self.canBuild=False
         
         self.getInfo()
