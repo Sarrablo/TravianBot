@@ -3,6 +3,8 @@ import Cookie
 import cookielib
 from BeautifulSoup import BeautifulSoup
 import json
+import re
+BASE_URL = 'http://ts1.travian.net/{}'
 
 class Resource:
     def __init__(self, typ, level, link):
@@ -52,25 +54,30 @@ class TravianBot:
         for i in range(1,19):
             
             self.br.open('http://ts1.travian.net/build.php?id='+str(i))
+            print 'http://ts1.travian.net/build.php?id='+str(i)
             soup = BeautifulSoup(self.br.response().read())
             tipe = soup.findAll(attrs={"class" : "titleInHeader"})[0].renderContents()
             lev = BeautifulSoup(tipe).findAll(attrs={"class" : "level"})[0].renderContents()
             self.resources.append(Resource(tipe[0],lev[-1],('http://ts1.travian.net/build.php?id='+str(i))))
 
-    def buildResource(self, idResource):
-        self.br.open(self.resources[idResource].link)
+    def get_soup(self, url):
+        """ Open a URL and returns its parsed BS content """
+        self.br.open(url)
         soup = BeautifulSoup(self.br.response().read())
-        link= None
+        return soup
+
+    def buildResource(self, resource):
+        soup = self.get_soup(resource.link)
         try:
-            link = soup.findAll(attrs={"class" : "green build"})
+            attrs = soup.findAll(attrs={"class": "green build"})[0].attrs
+            link = re.match(".*'(.*)'.*", dict(attrs)['onclick']).group(1)
+            self._can_build = True
         except:
-            print "no se peude construir"
-        if(len(link) > 0):
-            foo= str(link).replace('&amp;','&')
-            bar= foo[(foo.find('href'))+8:foo.find(';')-1]
-            self.br.open('http://ts1.travian.net/'+bar)
-        else:
-            print "no se peude construir"
+            self._can_build = False
+            raise ValueError("Already building or unable to build")
+
+        result = self.get_soup(BASE_URL.format(link))
+        
         
             
 
