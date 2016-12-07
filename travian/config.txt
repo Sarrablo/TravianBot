@@ -1,7 +1,7 @@
 {
 	"login": {
-		"user": "plantas1",
-		"pass": "*****"
+		"user": "plantas2",
+		"pass": "travian"
 	},
 	"priorityResources": {
 		"L": 0,
