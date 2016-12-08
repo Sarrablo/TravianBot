@@ -1,2 +1,2 @@
-mechanize
-bs4
+robobrowser
+docopt
