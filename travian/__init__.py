@@ -1,22 +1,43 @@
 """
 A simple travian bot
 
+Usage:
+    travian --config config_file
+
+Options:
+    -h --help                   Show this screen
+    -v --version                Show version
+    --config <CONFIG_FILE>      Use given config file
+
+Examples:
+    travian --config ~/.travian_config.ini
+
 """
+
 import re
+import logging
+from configparser import ConfigParser
+from functools import lru_cache
 from collections import namedtuple
 from datetime import datetime, timedelta
 
-import cookielib
-import mechanize
-from BeautifulSoup import BeautifulSoup
+from gettext import gettext as _
+from docopt import docopt
+from robobrowser import RoboBrowser
+import io
 
-BASE_URL = 'http://ts1.travian.net/{}'
-RESOURCES_URL = BASE_URL.format('build.php?id={}')
-LOGIN_URL = BASE_URL.format('login.php')
+logging.basicConfig()
 
-MAX_MAP_RESOURCES = 19
-RES_TYPES = {'L': 'Lumberer', 'M': 'Mine', 'B': 'Barrier', 'G': 'Farm'}
+DEFAULT_CONFIG = """
+[urls]
+base = http://ts1.travian.net/{}
+
+[resources]
+max = 19 """
+RES_TYPES = {'L': _('Lumberer'), 'M': _('Mine'),
+             'B': _('Barrier'), 'G': _('Farm')}
 INV_TYPES = {v: k for k, v in RES_TYPES.items()}
+
 
 ResourceType = namedtuple("Resource", ",".join(RES_TYPES.values()))
 
@@ -24,21 +45,24 @@ ResourceType = namedtuple("Resource", ",".join(RES_TYPES.values()))
 class Resource(namedtuple("Resource", "id, type_, level, link")):
     """ Represents a resource """
     def __repr__(self):
-        return "<Resource type {} level {}>".format(
-            RES_TYPES[self.type_], self.level)
+        return "<Resource type {} level {}>".format(self.type_, self.level)
 
 
 class ResourcePriority(ResourceType):
     """
         Resources priority
+
+        ResourcePriority(1, 2, 3, 4).sorted[0]
     """
+
+    @property
     def sorted(self):
         """
         Returns list of values, sorted
 
         """
-        return list(dict(sorted(self._asdict().items(),
-                                key=lambda x: x[1])).values())
+        return [a[0] for a in sorted(
+            self._asdict().items(), key=lambda x: x[1], reverse=True)]
 
 
 class ResourceList(list):
@@ -83,16 +107,13 @@ class Travian:
     Travian Interface
 
     """
-    def __init__(self, user, password):
-        self.last_build_known_ends = None
-        self.bro = mechanize.Browser()
-        cookiejar = cookielib.LWPCookieJar()
-        self.bro.set_cookiejar(cookiejar)
-
+    def __init__(self, config):
+        self.config = config
+        self.busy_until = None
+        self.bro = RoboBrowser(history=True)
         self._can_build = True
-
-        self.login(user, password)
-        self.resources = ResourceList(self.map_resources())
+        self.urls = dict(config.items("urls"))
+        self.login(config.get('login', 'user'), config.get('login', 'pass'))
 
     @property
     def can_build(self):
@@ -100,42 +121,47 @@ class Travian:
         if not self._can_build:
             # We didn't got an exception, we check if the
             # last build has already finished...
-            return self.last_build_known_ends < datetime.now()
+            return self.busy_until < datetime.now()
         # Careful, if we build using another instance
         # of the bot, this might not be true
         return self._can_build
 
     def login(self, user, password):
         """ Login into travian """
-        self.bro.open(LOGIN_URL)
-        self.bro.select_form(name="login")
-        self.bro["name"] = user
-        self.bro["password"] = password
-        self.bro.submit()
+        self.bro.open(self.urls['base'].format('login.php'))
+        form = self.bro.get_form()
+        form["name"].value = user
+        form["password"].value = password
+        self.bro.submit_form(form)
 
-    def map_resources(self):
+    def _get_resource(self, res):
+        """
+        Return a resource level / type given its id.
+
+        """
+        resource_url = self.urls['base'].format('build.php?id={}'.format(res))
+        self.bro.open(resource_url)
+        tipe = self.bro.select('.titleInHeader')[0]
+        type_, level = re.match("(.*) .* (.*)", tipe.text).groups()
+        return Resource(id=res, type_=type_, level=level, link=resource_url)
+
+    def _get_resources(self):
         """
         Generator yielding current resources available
 
         """
 
-        def filter_rendered(soup, attrs):
-            """ Filter contents, and return the first rendered """
-            return soup.findAll(attrs=attrs)[0].renderContents()
+        for res in range(1, int(self.config.get("resources", "max"))):
+            yield self._get_resource(res)
 
-        for i in range(1, MAX_MAP_RESOURCES):
-            resource_url = RESOURCES_URL.format(i)
-            soup = self.get_soup(resource_url)
-            tipe = filter_rendered(soup, {"class": "titleInHeader"})
-            level = filter_rendered(BeautifulSoup(tipe), {"class": "level"})
-            yield Resource(id=i, type_=tipe[0], level=level[-1],
-                           link=resource_url)
+    @property
+    @lru_cache(10)
+    def resources(self):
+        """
+        Generator yielding current resources available
 
-    def get_soup(self, url):
-        """ Open a URL and returns its parsed BS content """
-        self.bro.open(url)
-        soup = BeautifulSoup(self.bro.response().read())
-        return soup
+        """
+        return ResourceList(self._get_resources())
 
     def build_resource(self, resource):
         """
@@ -144,22 +170,20 @@ class Travian:
         .. param:: resource: Resource object to build.
 
         """
-        soup = self.get_soup(resource.link)
+        self.bro.open(resource.link)
 
         try:
-            attrs = soup.findAll(attrs={"class": "green build"})[0].attrs
-            link = re.match(".*'(.*)'.*", dict(attrs)['onclick']).group(1)
+            onclick = self.bro.select('.green.build')[0].attrs['onclick']
+            link = re.match(".*'(.*)'.*", onclick).group(1)
             self._can_build = True
         except:
             self._can_build = False
             raise ValueError("Already building or unable to build")
 
-        result = self.get_soup(BASE_URL.format(link))
-        durationbox = result.findAll(attrs={"class": 'buildDuration'})[0]
-        attrs = dict(durationbox.findAll(attrs={"class": "timer"})[0].attrs)
-        time_ = datetime.now() + timedelta(seconds=int(attrs['value']))
-        self.last_build_known_ends = time_
-        return time_
+        self.bro.open(self.urls['base'].format(link))
+        duration = self.bro.select('.buildDuration')[0].find().attrs['value']
+        self.busy_until = datetime.now() + timedelta(seconds=int(duration))
+        return self.busy_until
 
 
 class TravianBot:
@@ -168,8 +192,7 @@ class TravianBot:
     """
     def __init__(self, config):
         self.config = config
-        self.travian = Travian(config.get("login", "user"),
-                               config.get("login", "user"))
+        self.travian = Travian(config)
 
     def assess_resources(self):
         """
@@ -177,4 +200,48 @@ class TravianBot:
 
         """
         groups = self.travian.resources.by_type
-        print(groups)
+        logging.debug(groups)
+
+    def run(self):
+        """
+        run
+
+        """
+        raise NotImplementedError()
+
+
+def get_config(where):
+    """
+    Generate a config parser filled with default travian values
+
+    """
+    config = ConfigParser()
+    config.read_file(io.StringIO(DEFAULT_CONFIG))
+    if where:
+        config.read(where)
+    return config
+
+
+def simple_login(user, pass_):
+    """
+    Return a simple conffile with login
+
+    """
+    config = get_config(False)
+    config.add_section("login")
+    config.set('login', 'user', user)
+    config.set('login', 'pass', pass_)
+    return config
+
+
+def main():
+    """
+    Entry point
+
+    """
+    args = docopt(__doc__)
+    TravianBot(get_config(args.config)).run()
+
+
+if __name__ == "__main__":
+    main()
